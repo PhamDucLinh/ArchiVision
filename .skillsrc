@@ -1,0 +1,23 @@
+registry: https://github.com/HoangNguyen0403/agent-skills-standard
+agents:
+  - codex
+  - gemini
+skills:
+  flutter:
+    ref: flutter-v1.7.1
+    exclude:
+      - flutter-riverpod-state-management
+      - flutter-bloc-state-management
+      - flutter-auto-route-navigation
+      - flutter-go-router-navigation
+      - flutter-getx-navigation
+      - flutter-getx-state-management
+      - flutter-localization
+      - flutter-retrofit-networking
+      - flutter-dependency-injection
+custom_overrides: []
+workflows: false
+mcp:
+  enabled: true
+  scope: project
+  prompted: true
