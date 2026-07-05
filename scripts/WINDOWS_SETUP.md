@@ -1,5 +1,25 @@
 # Windows Setup Automation
 
+## Neu ban KHONG co may Windows
+
+Ban van co the build app Windows bang GitHub Actions.
+
+### Cach dung GitHub Actions de build goi portable
+
+1. Push code len nhanh `main`.
+2. Vao tab `Actions` tren GitHub repo.
+3. Chon workflow `Build Windows Portable`.
+4. Bam `Run workflow`, hoac chi can push moi len `main` de workflow tu chay.
+5. Doi workflow build xong.
+6. Tai artifact ten dang `archivision-windows-portable-<run_number>`.
+7. Gui file artifact zip do cho nguoi dung Windows.
+
+Luu y:
+
+- Artifact hien dang duoc giu 14 ngay.
+- Neu repo la private, nguoi dung cuoi thuong se khong tu tai duoc artifact neu khong co quyen doc repo.
+- Cach de don gian nhat la ban tai artifact ve roi gui lai cho nguoi dung qua Drive, Dropbox, Zalo, v.v.
+
 ## Cho nguoi dung Windows khong ky thuat
 
 Khuyen nghi phat hanh goi `portable` da build san thay vi bat nguoi dung cai Flutter.

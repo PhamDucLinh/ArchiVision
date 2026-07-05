@@ -1,0 +1,47 @@
+name: Build Windows Portable
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows-portable:
+    runs-on: windows-2022
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Flutter SDK
+        uses: flutter-actions/setup-flutter@v4
+        with:
+          channel: stable
+          version: latest
+          cache: true
+          cache-sdk: true
+
+      - name: Enable Windows desktop
+        shell: pwsh
+        run: flutter config --enable-windows-desktop
+
+      - name: Flutter doctor
+        shell: pwsh
+        run: flutter doctor -v
+
+      - name: Build portable Windows package
+        shell: pwsh
+        run: PowerShell -ExecutionPolicy Bypass -File .\scripts\build_windows.ps1 -Package
+
+      - name: Upload portable package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: archivision-windows-portable-${{ github.run_number }}
+          path: dist/archivision_windows_portable
+          if-no-files-found: error
+          retention-days: 14
