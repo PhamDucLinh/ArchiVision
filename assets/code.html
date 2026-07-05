@@ -1,0 +1,305 @@
+<!DOCTYPE html><html class="dark" lang="vi" style=""><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>ArchAI Render - Settings Panel</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "inverse-surface": "#e5e2e1",
+                        "surface-container-high": "#2a2a2a",
+                        "surface-container-highest": "#353534",
+                        "background": "#131313",
+                        "on-primary-container": "#636565",
+                        "surface-variant": "#353534",
+                        "tertiary-fixed": "#d3e4fe",
+                        "error": "#ffb4ab",
+                        "on-background": "#e5e2e1",
+                        "on-primary-fixed": "#1a1c1c",
+                        "primary-fixed": "#e2e2e2",
+                        "outline-variant": "#444748",
+                        "surface-container-lowest": "#0e0e0e",
+                        "surface-bright": "#393939",
+                        "tertiary-fixed-dim": "#b7c8e1",
+                        "secondary-container": "#3e495d",
+                        "on-error-container": "#ffdad6",
+                        "surface-dim": "#131313",
+                        "secondary-fixed": "#d8e3fb",
+                        "on-primary-fixed-variant": "#454747",
+                        "on-tertiary": "#213145",
+                        "surface": "#131313",
+                        "on-secondary-container": "#aeb9d0",
+                        "on-surface-variant": "#c4c7c8",
+                        "error-container": "#93000a",
+                        "secondary": "#bcc7de",
+                        "primary-container": "#e2e2e2",
+                        "on-surface": "#e5e2e1",
+                        "on-secondary": "#263143",
+                        "on-tertiary-fixed-variant": "#38485d",
+                        "primary": "#ffffff",
+                        "inverse-on-surface": "#313030",
+                        "tertiary": "#ffffff",
+                        "tertiary-container": "#d3e4fe",
+                        "surface-tint": "#c6c6c7",
+                        "on-tertiary-fixed": "#0b1c30",
+                        "inverse-primary": "#5d5f5f",
+                        "outline": "#8e9192",
+                        "primary-fixed-dim": "#c6c6c7",
+                        "secondary-fixed-dim": "#bcc7de",
+                        "on-secondary-fixed-variant": "#3c475a",
+                        "on-secondary-fixed": "#111c2d",
+                        "on-error": "#690005",
+                        "on-tertiary-container": "#56657c",
+                        "surface-container": "#201f1f",
+                        "on-primary": "#2f3131",
+                        "surface-container-low": "#1c1b1b"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "gutter": "16px",
+                        "panel-width": "320px",
+                        "unit": "4px",
+                        "margin-mobile": "16px",
+                        "margin-desktop": "32px"
+                    },
+                    "fontFamily": {
+                        "headline-md-mobile": ["Inter"],
+                        "label-caps": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "display-lg": ["Inter"],
+                        "body-sm": ["Inter"],
+                        "mono-data": ["JetBrains Mono"],
+                        "headline-md": ["Inter"]
+                    },
+                    "fontSize": {
+                        "headline-md-mobile": ["20px", { "lineHeight": "1.2", "fontWeight": "600" }],
+                        "label-caps": ["11px", { "lineHeight": "1.2", "letterSpacing": "0.08em", "fontWeight": "600" }],
+                        "body-lg": ["16px", { "lineHeight": "1.6", "fontWeight": "400" }],
+                        "display-lg": ["48px", { "lineHeight": "1.1", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "body-sm": ["14px", { "lineHeight": "1.5", "fontWeight": "400" }],
+                        "mono-data": ["12px", { "lineHeight": "1.4", "fontWeight": "400" }],
+                        "headline-md": ["24px", { "lineHeight": "1.2", "letterSpacing": "-0.01em", "fontWeight": "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .thin-icon { font-variation-settings: 'wght' 200, 'FILL' 0; }
+        .filled-icon { font-variation-settings: 'wght' 400, 'FILL' 1; }
+        
+        /* Custom scrollbar for panel */
+        .panel-scroll::-webkit-scrollbar {
+            width: 4px;
+        }
+        .panel-scroll::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .panel-scroll::-webkit-scrollbar-thumb {
+            background: #444748;
+            border-radius: 4px;
+        }
+        .panel-scroll::-webkit-scrollbar-thumb:hover {
+            background: #64748B;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-surface h-screen flex justify-end overflow-hidden font-body-sm font-sans">
+<!-- Top App Bar (From Shared Components) -->
+<header class="fixed top-0 w-full z-50 flex justify-between items-center px-margin-desktop h-16 bg-background/80 backdrop-blur-md border-b border-outline-variant flat no shadows">
+<div class="flex items-center gap-4">
+<span class="font-headline-md text-headline-md font-bold text-primary">ArchiVision Studio</span>
+</div>
+<div class="flex items-center gap-4">
+<button class="text-on-surface-variant hover:text-primary transition-colors flex items-center justify-center p-2 rounded-full hover:bg-surface-variant">
+<span class="material-symbols-outlined" data-icon="history">history</span>
+</button>
+<button class="text-on-surface-variant hover:text-primary transition-colors flex items-center justify-center p-2 rounded-full hover:bg-surface-variant">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+</button>
+<div class="h-8 w-8 rounded-full overflow-hidden border border-outline-variant">
+<img alt="User profile" class="w-full h-full object-cover" data-alt="A professional headshot of an architect in a minimalist studio setting. Dark mode aesthetics with soft, dramatic rim lighting highlighting facial features. Professional, calm, and creative mood. Deep shadows contrasting with subtle warm skin tones." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDXQP04dXPe_vhLPDzPWFVkte2jNseR8nZd7F5wjtRo7KG1kKVz3rR1uVgV91cYidZPw9CqTrn2qfMaP9OMbCUhy6guUNtZxgXjUBLWJdqx6XjTp4mUHCa4M2oxzXe2wyEvP1j58up8olkIGLNgIiDyqXjN7_SCO5IcqZmSeBcpltiU5RHy2sZZ-nyTahknymdAyN1GvfmUaHaAepO1m2PQbBEz82V0NJP-P7sJhGvOmG60k7HKXZbByZAt9rkdgI3aPC3aJkxaZHo">
+</div>
+</div>
+</header>
+<!-- Side Panel (From Shared Components - Abstracted logic) -->
+<nav class="hidden md:flex fixed left-0 top-16 h-[calc(100vh-4rem)] w-[320px] flex-col py-8 z-40 bg-surface-container-low border-r border-outline-variant flat no shadows font-body-sm text-body-sm">
+<div class="px-6 pb-6 mb-2 border-b border-outline-variant">
+<h2 class="font-headline-md text-headline-md text-primary font-bold">Project Alpha</h2>
+<p class="font-label-caps text-label-caps text-on-surface-variant mt-1">Modern Minimalist</p>
+</div>
+<div class="flex-1 overflow-y-auto panel-scroll px-4 mt-4 space-y-1">
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:bg-surface-variant transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="folder">folder</span>
+<span class="">Projects</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:bg-surface-variant transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="category">category</span>
+<span class="">Assets</span>
+</a>
+
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-primary border-l-2 border-primary bg-surface-container-high opacity-80 scale-[0.98]" href="#">
+<span class="material-symbols-outlined filled-icon" data-icon="auto_awesome">auto_awesome</span>
+<span class="">Styles</span>
+</a><div class="ml-8 mt-1 space-y-1 border-l border-outline-variant">
+    <a href="#" class="flex items-center gap-3 px-4 py-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-variant transition-all text-sm">
+        <span class="material-symbols-outlined text-sm" data-icon="home_work">home_work</span>
+        <span class="">Exterior Style</span>
+    </a>
+    <a href="#" class="flex items-center gap-3 px-4 py-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-variant transition-all text-sm">
+        <span class="material-symbols-outlined text-sm" data-icon="chair">chair</span>
+        <span class="">Interior Style</span>
+    </a>
+    <a href="#" class="flex items-center gap-3 px-4 py-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-variant transition-all text-sm">
+        <span class="material-symbols-outlined text-sm" data-icon="park">park</span>
+        <span class="">Landscape Style</span>
+    </a>
+</div>
+
+</div>
+<div class="px-6 pt-4 mt-auto">
+<button class="w-full bg-primary text-on-primary py-2.5 rounded-lg font-bold flex items-center justify-center gap-2 mb-6 hover:bg-opacity-90 transition-opacity">
+<span class="material-symbols-outlined" data-icon="add">add</span>
+                New Render
+            </button>
+<div class="space-y-1 border-t border-outline-variant pt-4">
+<a class="flex items-center gap-3 px-4 py-2 text-on-surface-variant hover:text-primary transition-colors" href="#">
+
+
+</a>
+<a class="flex items-center gap-3 px-4 py-2 text-on-surface-variant hover:text-primary transition-colors" href="#">
+
+
+</a>
+</div>
+</div>
+</nav>
+<!-- Main Content Canvas -->
+<main class="w-full md:w-[calc(100%-320px-360px)] mt-16 h-[calc(100vh-4rem)] bg-background relative flex items-center justify-center">
+<!-- Placeholder for active canvas area where the render would appear -->
+<div class="w-full h-full relative" data-alt="A photorealistic 3D architectural render of a modern minimalist villa. High-end real estate presentation. Sunset lighting with long shadows, glowing interior lights. Raw concrete textures, large glass windows reflecting the twilight sky. Professional architectural visualization style, sharp focus, cinematic composition." style="background-image: url(&quot;https://lh3.googleusercontent.com/aida-public/AB6AXuBztNdua_dwewUOsJ3AQH2ss1DfCfgZZcW2h-ysu98NWbsXSLLsKfzsghwW2ZkJJJlPXW55PMyzUm06FhFvfx_sJ1x8Ji0SiAqpsUhMPEWIQo02b3WXCxVCkxbLRlDozMBKL2QCx-GNjM-wRQb-enGa2G7cNZfaMEMZEKBBiigGlX9DVF761gvm-5OVv3Cbrqb4IL2gDCC-_WWtcBQCfFehwKgrTGcnBm9wuuOaIO4abqD37v5u7hts7AOmVMZFhk2pfNhTOzKh1oY&quot;);">
+<div class="absolute inset-0 bg-background/20 backdrop-blur-[2px]"></div>
+</div>
+</main>
+<!-- Right Settings Panel (The requested UI) -->
+<aside class="w-full md:w-[360px] h-[calc(100vh-4rem)] mt-16 bg-surface-container-low border-l border-outline-variant flex flex-col absolute right-0 z-30 shadow-2xl md:shadow-none">
+<div class="flex-1 overflow-y-auto panel-scroll p-6 space-y-6">
+<!-- Section 1: DỮ LIỆU HÌNH ẢNH (Image Data) -->
+<section class="space-y-3">
+<h3 class="font-label-caps text-label-caps text-on-surface-variant mb-4 tracking-wider">DỮ LIỆU HÌNH ẢNH</h3>
+<!-- Zone 1 -->
+<div class="bg-[#1A1A1A] border border-dashed border-[#64748B] rounded-xl p-4 flex flex-col items-center justify-center gap-3 hover:border-primary transition-colors cursor-pointer group">
+<span class="font-label-caps text-label-caps text-on-surface-variant w-full text-left">1. ẢNH HIỆN TRẠNG / BỐ CỤC</span>
+<span class="material-symbols-outlined text-outline group-hover:text-primary transition-colors thin-icon text-[32px] my-2" data-icon="image">image</span>
+<button class="w-full py-2 bg-surface-container-high hover:bg-surface-bright text-on-surface rounded-lg border border-[#2D2D2D] transition-colors text-sm font-medium">
+                        Tải ảnh lên
+                    </button>
+</div>
+<!-- Zone 2 -->
+<div class="bg-[#1A1A1A] border border-dashed border-[#64748B] rounded-xl p-4 flex flex-col items-center justify-center gap-3 hover:border-primary transition-colors cursor-pointer group">
+<span class="font-label-caps text-label-caps text-on-surface-variant w-full text-left">2. ẢNH THAM CHIẾU (STYLE)</span>
+<span class="material-symbols-outlined text-outline group-hover:text-primary transition-colors thin-icon text-[32px] my-2" data-icon="palette">palette</span>
+<button class="w-full py-2 bg-surface-container-high hover:bg-surface-bright text-on-surface rounded-lg border border-[#2D2D2D] transition-colors text-sm font-medium">
+                        Tải ảnh mẫu
+                    </button>
+</div>
+</section>
+<!-- Section 2: PROMPT (CÂU LỆNH) -->
+<section class="space-y-3">
+<h3 class="font-label-caps text-label-caps text-on-surface-variant mb-2 tracking-wider">PROMPT (CÂU LỆNH)</h3>
+<div class="relative">
+<textarea class="w-full bg-[#1A1A1A] text-on-surface border border-[#2D2D2D] rounded-xl p-3 min-h-[100px] resize-none focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all text-sm placeholder:text-outline-variant" placeholder="ảnh chụp thực tế">ảnh chụp thực tế</textarea>
+</div>
+<button class="w-full bg-secondary-container hover:bg-opacity-90 text-tertiary-fixed flex items-center justify-center gap-2 py-2.5 rounded-lg transition-colors font-medium text-sm">
+<span class="material-symbols-outlined text-lg" data-icon="auto_fix_high">auto_fix_high</span>
+                    AI Tối ưu Prompt
+                </button>
+</section>
+<!-- Section 3: BỘ LỌC NHANH (Quick Filters) -->
+<section class="space-y-3">
+<h3 class="font-label-caps text-label-caps text-on-surface-variant mb-2 tracking-wider">BỘ LỌC NHANH</h3>
+<div class="grid grid-cols-2 gap-3">
+<!-- Dropdown 1 -->
+<div class="bg-[#1A1A1A] border border-[#2D2D2D] rounded-lg p-2.5 relative group cursor-pointer hover:border-outline transition-colors">
+<label class="block font-label-caps text-[10px] text-outline-variant mb-1">CÔNG TRÌNH</label>
+<div class="flex items-center justify-between">
+<span class="text-sm text-on-surface truncate">Biệt thự</span>
+<span class="material-symbols-outlined text-outline-variant text-sm" data-icon="expand_more">expand_more</span>
+</div>
+</div>
+<!-- Dropdown 2 -->
+<div class="bg-[#1A1A1A] border border-[#2D2D2D] rounded-lg p-2.5 relative group cursor-pointer hover:border-outline transition-colors">
+<label class="block font-label-caps text-[10px] text-outline-variant mb-1">STYLE</label>
+<div class="flex items-center justify-between">
+<span class="text-sm text-on-surface truncate">Hiện đại</span>
+<span class="material-symbols-outlined text-outline-variant text-sm" data-icon="expand_more">expand_more</span>
+</div>
+</div>
+<!-- Dropdown 3 -->
+<div class="bg-[#1A1A1A] border border-[#2D2D2D] rounded-lg p-2.5 relative group cursor-pointer hover:border-outline transition-colors">
+<label class="block font-label-caps text-[10px] text-outline-variant mb-1">BỐI CẢNH</label>
+<div class="flex items-center justify-between">
+<span class="text-sm text-on-surface truncate">Đường phố Việt Nam</span>
+<span class="material-symbols-outlined text-outline-variant text-sm" data-icon="expand_more">expand_more</span>
+</div>
+</div>
+<!-- Dropdown 4 -->
+<div class="bg-[#1A1A1A] border border-[#2D2D2D] rounded-lg p-2.5 relative group cursor-pointer hover:border-outline transition-colors">
+<label class="block font-label-caps text-[10px] text-outline-variant mb-1">ÁNH SÁNG</label>
+<div class="flex items-center justify-between">
+<span class="text-sm text-on-surface truncate">Ánh nắng vàng 16:30</span>
+<span class="material-symbols-outlined text-outline-variant text-sm" data-icon="expand_more">expand_more</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Section 4: GÓC CAMERA -->
+<section class="space-y-3">
+<div class="bg-[#1A1A1A] border border-[#2D2D2D] rounded-lg p-2.5 relative group cursor-pointer hover:border-outline transition-colors">
+<label class="block font-label-caps text-[10px] text-outline-variant mb-1">GÓC CAMERA</label>
+<div class="flex items-center justify-between">
+<span class="text-sm text-on-surface truncate">Góc rộng</span>
+<span class="material-symbols-outlined text-outline-variant text-sm" data-icon="expand_more">expand_more</span>
+</div>
+</div>
+</section>
+<!-- Section 5: KỸ THUẬT (Technical) -->
+<section class="space-y-3 pb-8">
+<h3 class="font-label-caps text-label-caps text-on-surface-variant mb-2 tracking-wider">KỸ THUẬT</h3>
+<div class="grid grid-cols-2 gap-3">
+<div class="bg-[#1A1A1A] border border-[#2D2D2D] rounded-lg p-2.5 relative group cursor-pointer hover:border-outline transition-colors">
+<label class="block font-label-caps text-[10px] text-outline-variant mb-1">ASPECT</label>
+<div class="flex items-center justify-between">
+<span class="text-sm text-on-surface font-mono-data truncate">Auto</span>
+<span class="material-symbols-outlined text-outline-variant text-sm" data-icon="expand_more">expand_more</span>
+</div>
+</div>
+<div class="bg-[#1A1A1A] border border-[#2D2D2D] rounded-lg p-2.5 relative group transition-colors focus-within:border-primary">
+<label class="block font-label-caps text-[10px] text-outline-variant mb-1">BATCH</label>
+<input class="w-full bg-transparent border-none p-0 text-sm text-on-surface font-mono-data focus:ring-0 focus:outline-none" max="4" min="1" type="number" value="1">
+</div>
+</div>
+</section>
+</div>
+<!-- Section 6: BOTTOM ACTION -->
+<div class="p-6 border-t border-outline-variant bg-surface-container-low sticky bottom-0 z-10">
+<button class="w-full py-4 bg-primary text-on-primary rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-opacity-90 transition-all shadow-[0_0_20px_rgba(255,255,255,0.1)] hover:shadow-[0_0_25px_rgba(255,255,255,0.2)] active:scale-[0.98]">
+<span class="material-symbols-outlined filled-icon" data-icon="bolt">bolt</span>
+<span class="text-base uppercase tracking-wide">Bắt đầu Render</span>
+</button>
+</div>
+</aside>
+
+
+</body></html>
