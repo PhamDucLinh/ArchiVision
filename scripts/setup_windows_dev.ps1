@@ -2,7 +2,7 @@ param(
     [switch]$NoAdminRelaunch,
     [switch]$SkipFlutter,
     [switch]$SkipVisualStudio,
-    [switch]$SkipRuntimeSetup
+    [switch]$SkipGit
 )
 
 $ErrorActionPreference = "Stop"
@@ -45,7 +45,7 @@ if (-not $NoAdminRelaunch -and -not (Test-IsAdmin)) {
     )
     if ($SkipFlutter) { $arguments += "-SkipFlutter" }
     if ($SkipVisualStudio) { $arguments += "-SkipVisualStudio" }
-    if ($SkipRuntimeSetup) { $arguments += "-SkipRuntimeSetup" }
+    if ($SkipGit) { $arguments += "-SkipGit" }
     Start-Process powershell.exe -Verb RunAs -ArgumentList $arguments
     exit 0
 }
@@ -59,8 +59,9 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectRoot = Split-Path -Parent $scriptDir
 
 Write-Step "Install core tools"
-Install-WingetPackage -Id "Git.Git" -Name "Git"
-Install-WingetPackage -Id "Python.Python.3.12" -Name "Python 3.12"
+if (-not $SkipGit) {
+    Install-WingetPackage -Id "Git.Git" -Name "Git"
+}
 
 if (-not $SkipFlutter) {
     Install-WingetPackage -Id "Google.Flutter" -Name "Flutter SDK"
@@ -82,29 +83,22 @@ $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
 $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
 $env:Path = "$machinePath;$userPath"
 
-if (-not $SkipRuntimeSetup) {
-    Write-Step "Install ArchiVision Python runtime dependencies"
-    $runtimeScript = Join-Path $scriptDir "setup_windows_runtime.ps1"
-    if (Test-Path $runtimeScript) {
-        & $runtimeScript -SkipOda
-    } else {
-        Write-Warning "Runtime setup script not found: $runtimeScript"
-    }
+if (-not $SkipFlutter) {
+    Write-Step "Enable Windows desktop"
+    flutter config --enable-windows-desktop
 }
 
 Write-Step "Verify"
-git --version
-py -3 --version
-
+if (-not $SkipGit) {
+    git --version
+}
 if (-not $SkipFlutter) {
     flutter --version
-}
-
-if (-not $SkipVisualStudio -and -not $SkipFlutter) {
     flutter doctor -v
 }
 
 Write-Step "Done"
 Write-Host "Close and reopen PowerShell, then run:" -ForegroundColor Green
 Write-Host "  cd `"$projectRoot`""
+Write-Host "  flutter pub get"
 Write-Host "  PowerShell -ExecutionPolicy Bypass -File .\scripts\build_windows.ps1 -Package"

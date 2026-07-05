@@ -1,75 +1,80 @@
 # Windows Setup Automation
 
-## Máy chỉ chạy app đã build
+## Cho nguoi dung Windows khong ky thuat
 
-Copy toàn bộ thư mục release/package sang máy Windows, rồi mở PowerShell trong thư mục đó:
+Khuyen nghi phat hanh goi `portable` da build san thay vi bat nguoi dung cai Flutter.
 
-```powershell
-PowerShell -ExecutionPolicy Bypass -File .\setup_windows_runtime.ps1
-.\archi_vision.exe
-```
+### Cach dung goi portable
 
-Nếu máy chưa có Python và có `winget`:
+1. Nhan file zip `archivision_windows_portable`.
+2. Giai nen ra 1 thu muc bat ky.
+3. Double click `Run_ArchiVision.bat`.
 
-```powershell
-PowerShell -ExecutionPolicy Bypass -File .\setup_windows_runtime.ps1 -InstallPythonWithWinget
-```
-
-Nếu chỉ xử lý `.skp/.skb` preview, có thể bỏ ODA:
+Neu muon tao shortcut Desktop, mo PowerShell trong thu muc package va chay:
 
 ```powershell
-PowerShell -ExecutionPolicy Bypass -File .\setup_windows_runtime.ps1 -SkipOda
+PowerShell -ExecutionPolicy Bypass -File .\setup_windows_runtime.ps1 -CreateDesktopShortcut -LaunchAfterSetup
 ```
 
-Nếu có installer ODA đã tải:
+Nguoi dung cuoi KHONG can:
 
-```powershell
-PowerShell -ExecutionPolicy Bypass -File .\setup_windows_runtime.ps1 -OdaInstallerPath "C:\Users\You\Downloads\ODAFileConverter.exe"
-```
+- Flutter SDK
+- Visual Studio
+- Python
+- ODA
 
-Nếu chưa có ODA và muốn mở trang tải:
+## Cho may Windows dung de build package
 
-```powershell
-PowerShell -ExecutionPolicy Bypass -File .\setup_windows_runtime.ps1 -OpenOdaDownloadPage
-```
+### 1. Cai moi truong build
 
-## Máy dùng để build Windows app
-
-Cách tự động nhất: mở PowerShell trong root project và chạy:
+Mo PowerShell voi quyen admin trong root project:
 
 ```powershell
 PowerShell -ExecutionPolicy Bypass -File .\scripts\setup_windows_dev.ps1
 ```
 
-Script sẽ cài bằng `winget`:
+Script se cai:
 
 - Git
-- Python 3
 - Flutter SDK
 - Visual Studio 2022 Community
-- Visual Studio workload `Desktop development with C++`
-- Python packages trong `requirements.txt`
+- workload `Desktop development with C++`
 
-Nếu Windows hiện hộp thoại UAC, chọn **Yes**.
-
-Sau khi script xong, đóng PowerShell rồi mở lại để PATH mới có hiệu lực.
-
-Build:
-
-```powershell
-PowerShell -ExecutionPolicy Bypass -File .\scripts\build_windows.ps1
-```
-
-Build và đóng gói thư mục runtime:
+### 2. Build va dong goi portable
 
 ```powershell
 PowerShell -ExecutionPolicy Bypass -File .\scripts\build_windows.ps1 -Package
 ```
 
-Output package mặc định:
+Output mac dinh:
 
 ```text
-dist\archi_vision_windows_runtime
+dist\archivision_windows_portable
 ```
 
-Mang toàn bộ thư mục này sang máy Windows khác rồi chạy `setup_windows_runtime.ps1`.
+Thu muc nay da bao gom:
+
+- `archi_vision.exe`
+- cac file `.dll`
+- thu muc `data`
+- `Run_ArchiVision.bat`
+- `setup_windows_runtime.ps1`
+
+Neu muon bo qua test:
+
+```powershell
+PowerShell -ExecutionPolicy Bypass -File .\scripts\build_windows.ps1 -SkipTests -Package
+```
+
+Neu muon dong goi ma khong kem VC++ runtime local:
+
+```powershell
+PowerShell -ExecutionPolicy Bypass -File .\scripts\build_windows.ps1 -Package -SkipBundleVCRuntime
+```
+
+## Kich ban de xuat
+
+1. Ban build package tren 1 may Windows co moi truong dev.
+2. Nen file `dist\archivision_windows_portable`.
+3. Gui zip cho nguoi dung.
+4. Nguoi dung giai nen va double click `Run_ArchiVision.bat`.
