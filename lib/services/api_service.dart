@@ -648,6 +648,46 @@ class ApiService {
   }
 
   Future<_RenderAsset> _extractRenderAsset(Map<String, dynamic> payload) async {
+    final stepImageBlock = _findImageBlockFromSteps(payload);
+    if (stepImageBlock != null) {
+      if (stepImageBlock.base64Data != null) {
+        final bytes = _decodeBase64Image(stepImageBlock.base64Data!);
+        return _RenderAsset(
+          bytes: bytes,
+          mimeType: stepImageBlock.mimeType ?? 'image/png',
+          url:
+              stepImageBlock.dataUrl ??
+              _buildInlineDataUrlFromBytes(
+                bytes,
+                mimeType: stepImageBlock.mimeType ?? 'image/png',
+              ),
+        );
+      }
+
+      if (stepImageBlock.dataUrl != null) {
+        final bytes = _decodeDataUrl(stepImageBlock.dataUrl!);
+        return _RenderAsset(
+          bytes: bytes,
+          url: stepImageBlock.dataUrl!,
+          mimeType:
+              _mimeTypeFromDataUrl(stepImageBlock.dataUrl!) ??
+              stepImageBlock.mimeType ??
+              'image/png',
+        );
+      }
+
+      if (stepImageBlock.remoteUrl != null) {
+        final bytes = await _downloadImageBytes(stepImageBlock.remoteUrl!);
+        return _RenderAsset(
+          bytes: bytes,
+          url: stepImageBlock.remoteUrl!,
+          mimeType:
+              stepImageBlock.mimeType ??
+              _mimeTypeFromFileName(stepImageBlock.remoteUrl!),
+        );
+      }
+    }
+
     final remoteUrl = _extractImageUrl(payload);
     final inlineDataUrl = _extractInlineDataUrl(payload);
     final encodedImage = _extractBase64Image(payload);
@@ -689,8 +729,75 @@ class ApiService {
     throw const ApiServiceException(
       'Lỗi render hệ thống',
       details:
-          'Gemini image API đã phản hồi nhưng không tìm thấy ảnh output ở các field base64/URL phổ biến.',
+          'Gemini image API đã phản hồi nhưng không tìm thấy ảnh output trong steps/content hoặc các field base64/URL phổ biến.',
     );
+  }
+
+  _InteractionImageBlock? _findImageBlockFromSteps(
+    Map<String, dynamic> payload,
+  ) {
+    final steps = payload['steps'];
+    if (steps is! List) {
+      return null;
+    }
+
+    for (final step in steps.reversed) {
+      if (step is! Map<String, dynamic> || step['type'] != 'model_output') {
+        continue;
+      }
+
+      final content = step['content'];
+      if (content is! List) {
+        continue;
+      }
+
+      for (final block in content.reversed) {
+        if (block is! Map<String, dynamic> ||
+            !_looksLikeImageContentBlock(block)) {
+          continue;
+        }
+
+        final rawData = block['data'];
+        final imageUrl = block['image_url'] ?? block['url'];
+        final mimeType = block['mime_type'] as String?;
+
+        if (rawData is String && rawData.trim().isNotEmpty) {
+          if (rawData.startsWith('data:')) {
+            return _InteractionImageBlock(dataUrl: rawData, mimeType: mimeType);
+          }
+
+          if (_looksLikeUrl(rawData)) {
+            return _InteractionImageBlock(
+              remoteUrl: rawData,
+              mimeType: mimeType,
+            );
+          }
+
+          return _InteractionImageBlock(
+            base64Data: rawData,
+            mimeType: mimeType,
+          );
+        }
+
+        if (imageUrl is String && imageUrl.trim().isNotEmpty) {
+          if (imageUrl.startsWith('data:')) {
+            return _InteractionImageBlock(
+              dataUrl: imageUrl,
+              mimeType: mimeType,
+            );
+          }
+
+          if (_looksLikeUrl(imageUrl)) {
+            return _InteractionImageBlock(
+              remoteUrl: imageUrl,
+              mimeType: mimeType,
+            );
+          }
+        }
+      }
+    }
+
+    return null;
   }
 
   String? _extractBase64Image(Map<String, dynamic> payload) {
@@ -957,6 +1064,10 @@ bool _looksLikeTransientGeminiError(String error) {
 }
 
 bool _looksLikeTransientHttpError(int statusCode, String body) {
+  if (statusCode >= 200 && statusCode < 300) {
+    return false;
+  }
+
   if (statusCode == 429 ||
       statusCode == 500 ||
       statusCode == 502 ||
@@ -966,6 +1077,20 @@ bool _looksLikeTransientHttpError(int statusCode, String body) {
   }
 
   return _looksLikeTransientGeminiError(body);
+}
+
+bool _looksLikeImageContentBlock(Map<String, dynamic> block) {
+  final type = block['type'];
+  if (type is String && type == 'image') {
+    return true;
+  }
+
+  final mimeType = block['mime_type'];
+  if (mimeType is String && mimeType.toLowerCase().startsWith('image/')) {
+    return true;
+  }
+
+  return false;
 }
 
 class _RenderAsset {
@@ -978,6 +1103,20 @@ class _RenderAsset {
   final Uint8List bytes;
   final String url;
   final String mimeType;
+}
+
+class _InteractionImageBlock {
+  const _InteractionImageBlock({
+    this.base64Data,
+    this.dataUrl,
+    this.remoteUrl,
+    this.mimeType,
+  });
+
+  final String? base64Data;
+  final String? dataUrl;
+  final String? remoteUrl;
+  final String? mimeType;
 }
 
 String? _firstNonEmpty(Iterable<String?> values) {
