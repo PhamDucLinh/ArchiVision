@@ -48,8 +48,6 @@ enum LightingCondition {
   final String promptLabelEn;
 }
 
-enum AiProvider { openAiCompatible, controlNetCompatible }
-
 class ArchitectureFilters {
   const ArchitectureFilters({
     required this.buildingType,
@@ -83,12 +81,14 @@ class ArchitectureGenerationResult {
   const ArchitectureGenerationResult({
     required this.imageBytes,
     required this.imageUrl,
+    required this.imageMimeType,
     required this.prompt,
     required this.rawResponse,
   });
 
   final Uint8List imageBytes;
   final String imageUrl;
+  final String imageMimeType;
   final String prompt;
   final Map<String, dynamic> rawResponse;
 
@@ -118,21 +118,21 @@ class ApiServiceException implements Exception {
 
 /// Core API layer for the architecture render workflow.
 ///
-/// Note: the app targets Desktop and Web, so this service works with raw image
-/// bytes + file name instead of `dart:io File` to stay web-compatible.
+/// Step 1:
+///   source image -> Gemini text/vision -> optimized Vietnamese prompt
+/// Step 2:
+///   source image + optimized prompt (+ optional style reference) ->
+///   Gemini Interactions API image model -> rendered image
 class ApiService {
   ApiService({
     http.Client? client,
-    String? apiUrl,
-    String? apiKey,
     String? geminiApiKey,
-    String? geminiModel,
-    AiProvider? provider,
+    String? geminiTextModel,
+    String? geminiImageModel,
+    String? interactionsApiUrl,
+    String? imageAspectRatio,
+    String? imageSize,
   }) : _client = client ?? http.Client(),
-       _provider = provider ?? _providerFromEnvironment(),
-       _apiUrl =
-           apiUrl ?? _defaultApiUrl(provider ?? _providerFromEnvironment()),
-       _apiKey = apiKey ?? const String.fromEnvironment('ARCHIVISION_API_KEY'),
        _geminiApiKey =
            geminiApiKey ??
            _resolveGeminiApiKey(
@@ -141,11 +141,36 @@ class ApiService {
              ),
              fallback: const String.fromEnvironment('GOOGLE_API_KEY'),
            ),
-       _geminiModel =
-           geminiModel ??
+       _geminiTextModel =
+           geminiTextModel ??
            const String.fromEnvironment(
              'ARCHIVISION_GEMINI_MODEL',
              defaultValue: 'gemini-3.5-flash',
+           ),
+       _geminiImageModel =
+           geminiImageModel ??
+           const String.fromEnvironment(
+             'ARCHIVISION_GEMINI_IMAGE_MODEL',
+             defaultValue: 'gemini-3-pro-image',
+           ),
+       _interactionsApiUrl =
+           interactionsApiUrl ??
+           const String.fromEnvironment(
+             'ARCHIVISION_GEMINI_INTERACTIONS_URL',
+             defaultValue:
+                 'https://generativelanguage.googleapis.com/v1beta/interactions',
+           ),
+       _imageAspectRatio =
+           imageAspectRatio ??
+           const String.fromEnvironment(
+             'ARCHIVISION_GEMINI_IMAGE_ASPECT_RATIO',
+             defaultValue: '16:9',
+           ),
+       _imageSize =
+           imageSize ??
+           const String.fromEnvironment(
+             'ARCHIVISION_GEMINI_IMAGE_SIZE',
+             defaultValue: '2K',
            );
 
   static const String analyzingMessage =
@@ -153,21 +178,27 @@ class ApiService {
   static const String renderingMessage = '⚡ Đang tiến hành render phối cảnh...';
 
   final http.Client _client;
-  final AiProvider _provider;
-  final String _apiUrl;
-  final String _apiKey;
   final String _geminiApiKey;
-  final String _geminiModel;
-  static const List<String> _geminiFallbackModels = <String>[
+  final String _geminiTextModel;
+  final String _geminiImageModel;
+  final String _interactionsApiUrl;
+  final String _imageAspectRatio;
+  final String _imageSize;
+
+  static const List<String> _geminiTextFallbackModels = <String>[
     'gemini-3.5-flash',
     'gemini-2.5-flash',
     'gemini-flash-latest',
   ];
 
-  ApiCredentials get fallbackCredentials => ApiCredentials(
-    geminiApiKey: _geminiApiKey,
-    renderApiKey: _apiKey,
-  ).trimmed();
+  static const List<String> _geminiImageFallbackModels = <String>[
+    'gemini-3-pro-image',
+    'gemini-3.1-flash-image',
+    'gemini-2.5-flash-image',
+  ];
+
+  ApiCredentials get fallbackCredentials =>
+      ApiCredentials(geminiApiKey: _geminiApiKey).trimmed();
 
   Future<String> optimizeArchitecturePrompt({
     required Uint8List sourceImageBytes,
@@ -192,6 +223,8 @@ class ApiService {
   Future<ArchitectureGenerationResult> generateArchitecture({
     required Uint8List sourceImageBytes,
     required String sourceFileName,
+    Uint8List? styleReferenceImageBytes,
+    String? styleReferenceFileName,
     required BuildingType buildingType,
     required ArchitectureStyle style,
     required LightingCondition lighting,
@@ -215,8 +248,10 @@ class ApiService {
       return await generateArchitectureImage(
         imageBytes: sourceImageBytes,
         sourceFileName: sourceFileName,
+        styleReferenceImageBytes: styleReferenceImageBytes,
+        styleReferenceFileName: styleReferenceFileName,
         optimizedPrompt: optimizedPrompt,
-        renderApiKey: credentials.renderApiKey,
+        geminiApiKey: credentials.geminiApiKey,
       );
     } on ApiServiceException {
       rethrow;
@@ -242,7 +277,7 @@ class ApiService {
       throw const ApiServiceException(
         'Không thể phân tích ảnh',
         details:
-            'Thiếu ARCHIVISION_GEMINI_API_KEY hoặc GOOGLE_API_KEY để gọi Gemini 1.5 Flash.',
+            'Thiếu Gemini API key. Hãy nhập key trong app hoặc truyền --dart-define=ARCHIVISION_GEMINI_API_KEY=... khi chạy app.',
         credentialKind: ApiCredentialKind.gemini,
       );
     }
@@ -300,8 +335,8 @@ class ApiService {
     required String systemPrompt,
   }) async {
     final candidateModels = <String>[
-      _geminiModel,
-      ..._geminiFallbackModels.where((model) => model != _geminiModel),
+      _geminiTextModel,
+      ..._geminiTextFallbackModels.where((model) => model != _geminiTextModel),
     ];
 
     ApiServiceException? lastModelError;
@@ -362,171 +397,225 @@ class ApiService {
   Future<ArchitectureGenerationResult> generateArchitectureImage({
     required Uint8List imageBytes,
     required String sourceFileName,
+    Uint8List? styleReferenceImageBytes,
+    String? styleReferenceFileName,
     required String optimizedPrompt,
-    required String renderApiKey,
+    required String geminiApiKey,
   }) async {
-    final normalizedRenderApiKey = renderApiKey.trim();
-    if (_apiUrl.trim().isEmpty) {
+    final normalizedGeminiApiKey = geminiApiKey.trim();
+    if (normalizedGeminiApiKey.isEmpty) {
       throw const ApiServiceException(
         'Lỗi render hệ thống',
         details:
-            'Thiếu ARCHIVISION_API_URL. Hãy truyền --dart-define=ARCHIVISION_API_URL=... khi chạy app.',
+            'Thiếu Gemini API key. Hãy nhập key trong app trước khi render.',
+        credentialKind: ApiCredentialKind.gemini,
       );
     }
 
-    if (normalizedRenderApiKey.isEmpty) {
+    if (_interactionsApiUrl.trim().isEmpty) {
       throw const ApiServiceException(
         'Lỗi render hệ thống',
         details:
-            'Thiếu ARCHIVISION_API_KEY. Hãy truyền --dart-define=ARCHIVISION_API_KEY=... để gọi hệ thống render.',
-        credentialKind: ApiCredentialKind.render,
+            'Thiếu endpoint Gemini Interactions API. Hãy cấu hình ARCHIVISION_GEMINI_INTERACTIONS_URL nếu cần override endpoint mặc định.',
       );
     }
 
-    final base64Image = base64Encode(imageBytes);
-    final payload = _buildPayload(
-      prompt: optimizedPrompt,
-      base64Image: base64Image,
-      sourceFileName: sourceFileName,
-    );
+    final candidateModels = <String>[
+      _geminiImageModel,
+      ..._geminiImageFallbackModels.where(
+        (model) => model != _geminiImageModel,
+      ),
+    ];
 
-    try {
-      final response = await _client.post(
-        Uri.parse(_apiUrl),
-        headers: <String, String>{
-          'Authorization': 'Bearer $normalizedRenderApiKey',
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: jsonEncode(payload),
+    ApiServiceException? lastModelError;
+
+    for (final modelName in candidateModels) {
+      final payload = _buildGeminiImagePayload(
+        modelName: modelName,
+        sourceImageBytes: imageBytes,
+        sourceFileName: sourceFileName,
+        styleReferenceImageBytes: styleReferenceImageBytes,
+        styleReferenceFileName: styleReferenceFileName,
+        optimizedPrompt: optimizedPrompt,
       );
 
-      if (response.statusCode < 200 || response.statusCode >= 300) {
+      try {
+        final response = await _client.post(
+          Uri.parse(_interactionsApiUrl),
+          headers: <String, String>{
+            'x-goog-api-key': normalizedGeminiApiKey,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: jsonEncode(payload),
+        );
+
+        if (response.statusCode == 401 || response.statusCode == 403) {
+          throw ApiServiceException(
+            'Lỗi render hệ thống',
+            details:
+                'Gemini image API từ chối request (${response.statusCode}): ${_extractErrorMessage(response.body)}',
+            credentialKind: ApiCredentialKind.gemini,
+          );
+        }
+
+        if (response.statusCode == 404 &&
+            _looksLikeMissingGeminiModel(response.body)) {
+          lastModelError = ApiServiceException(
+            'Lỗi render hệ thống',
+            details:
+                'Gemini image model `$modelName` chưa khả dụng. Đã thử chuyển sang model fallback.',
+          );
+          continue;
+        }
+
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          throw ApiServiceException(
+            'Lỗi render hệ thống',
+            details:
+                'Gemini image API failed (${response.statusCode}): ${_extractErrorMessage(response.body)}',
+          );
+        }
+
+        final decoded = jsonDecode(response.body);
+        if (decoded is! Map<String, dynamic>) {
+          throw const ApiServiceException(
+            'Lỗi render hệ thống',
+            details:
+                'Gemini image API trả về dữ liệu không đúng định dạng JSON object.',
+          );
+        }
+
+        final renderAsset = await _extractRenderAsset(decoded);
+        return ArchitectureGenerationResult(
+          imageBytes: renderAsset.bytes,
+          imageUrl: renderAsset.url,
+          imageMimeType: renderAsset.mimeType,
+          prompt: optimizedPrompt,
+          rawResponse: decoded,
+        );
+      } on ApiServiceException catch (error) {
+        final canRetryWithFallback =
+            _looksLikeMissingGeminiModel(error.details ?? '') &&
+            modelName != candidateModels.last;
+        if (canRetryWithFallback) {
+          lastModelError = error;
+          continue;
+        }
+        rethrow;
+      } catch (error) {
         throw ApiServiceException(
           'Lỗi render hệ thống',
-          details:
-              'Render API failed (${response.statusCode}): ${_extractErrorMessage(response.body)}',
-          credentialKind:
-              response.statusCode == 401 || response.statusCode == 403
-              ? ApiCredentialKind.render
-              : null,
+          details: error.toString(),
         );
       }
-
-      final decoded = jsonDecode(response.body);
-      if (decoded is! Map<String, dynamic>) {
-        throw const ApiServiceException(
-          'Lỗi render hệ thống',
-          details:
-              'Render API trả về dữ liệu không đúng định dạng JSON object.',
-        );
-      }
-
-      final renderAsset = await _extractRenderAsset(decoded);
-
-      return ArchitectureGenerationResult(
-        imageBytes: renderAsset.bytes,
-        imageUrl: renderAsset.url,
-        prompt: optimizedPrompt,
-        rawResponse: decoded,
-      );
-    } on ApiServiceException {
-      rethrow;
-    } catch (error) {
-      throw ApiServiceException(
-        'Lỗi render hệ thống',
-        details: error.toString(),
-      );
     }
+
+    throw lastModelError ??
+        const ApiServiceException(
+          'Lỗi render hệ thống',
+          details: 'Không tìm thấy Gemini image model khả dụng để render ảnh.',
+        );
   }
 
-  Map<String, dynamic> _buildPayload({
-    required String prompt,
-    required String base64Image,
+  Map<String, dynamic> _buildGeminiImagePayload({
+    required String modelName,
+    required Uint8List sourceImageBytes,
     required String sourceFileName,
+    Uint8List? styleReferenceImageBytes,
+    String? styleReferenceFileName,
+    required String optimizedPrompt,
   }) {
-    switch (_provider) {
-      case AiProvider.openAiCompatible:
-        return <String, dynamic>{
-          'model': const String.fromEnvironment(
-            'ARCHIVISION_OPENAI_MODEL',
-            defaultValue: 'gpt-image-2',
-          ),
-          'images': <Map<String, String>>[
-            <String, String>{
-              'image_url': _buildDataUrl(
-                base64Image: base64Image,
-                sourceFileName: sourceFileName,
-              ),
-            },
-          ],
-          'prompt': prompt,
-          'input_fidelity': 'high',
-          'size': '1536x1024',
-          'quality': 'high',
-          'output_format': 'png',
-          'moderation': 'auto',
-          'n': 1,
-        };
-      case AiProvider.controlNetCompatible:
-        return <String, dynamic>{
-          'prompt': prompt,
-          'negative_prompt':
-              'low resolution, blurry, distorted geometry, duplicated facade elements',
-          'image': base64Image,
-          'controlnet': <String, dynamic>{
-            'enabled': true,
-            'mode': 'balanced',
-            'conditioning_scale': 0.9,
-          },
-          'image_strength': 0.35,
-          'cfg_scale': 7,
-          'steps': 30,
-          'width': 1536,
-          'height': 1024,
-          'output_format': 'png',
-          'response_format': 'b64_json',
-          'metadata': <String, dynamic>{
-            'source_file_name': sourceFileName,
-            'workflow': 'architecture-image-to-image',
-          },
-        };
+    final input = <Map<String, String>>[
+      <String, String>{
+        'type': 'text',
+        'text': _buildGeminiImagePrompt(
+          optimizedPrompt: optimizedPrompt,
+          hasStyleReference: styleReferenceImageBytes != null,
+        ),
+      },
+      <String, String>{
+        'type': 'image',
+        'mime_type': _mimeTypeFromFileName(sourceFileName),
+        'data': base64Encode(sourceImageBytes),
+      },
+    ];
+
+    if (styleReferenceImageBytes != null) {
+      input.add(<String, String>{
+        'type': 'image',
+        'mime_type': _mimeTypeFromFileName(
+          styleReferenceFileName ?? 'style-reference.png',
+        ),
+        'data': base64Encode(styleReferenceImageBytes),
+      });
     }
+
+    return <String, dynamic>{
+      'model': modelName,
+      'input': input,
+      'response_format': <String, String>{
+        'type': 'image',
+        'mime_type': 'image/jpeg',
+        'aspect_ratio': _imageAspectRatio,
+        'image_size': _imageSize,
+      },
+      'store': false,
+    };
   }
 
   Future<_RenderAsset> _extractRenderAsset(Map<String, dynamic> payload) async {
     final remoteUrl = _extractImageUrl(payload);
     final inlineDataUrl = _extractInlineDataUrl(payload);
     final encodedImage = _extractBase64Image(payload);
+    final outputImageMimeType =
+        _readPath(payload, ['output_image', 'mime_type']) as String?;
 
     if (encodedImage != null) {
       final bytes = _decodeBase64Image(encodedImage);
       return _RenderAsset(
         bytes: bytes,
-        url: inlineDataUrl ?? _buildInlineDataUrlFromBytes(bytes),
+        mimeType: outputImageMimeType ?? 'image/jpeg',
+        url:
+            inlineDataUrl ??
+            _buildInlineDataUrlFromBytes(
+              bytes,
+              mimeType: outputImageMimeType ?? 'image/jpeg',
+            ),
       );
     }
 
     if (inlineDataUrl != null) {
       final bytes = _decodeDataUrl(inlineDataUrl);
-      return _RenderAsset(bytes: bytes, url: inlineDataUrl);
+      return _RenderAsset(
+        bytes: bytes,
+        url: inlineDataUrl,
+        mimeType: _mimeTypeFromDataUrl(inlineDataUrl) ?? 'image/jpeg',
+      );
     }
 
     if (remoteUrl != null) {
       final bytes = await _downloadImageBytes(remoteUrl);
-      return _RenderAsset(bytes: bytes, url: remoteUrl);
+      return _RenderAsset(
+        bytes: bytes,
+        url: remoteUrl,
+        mimeType: outputImageMimeType ?? _mimeTypeFromFileName(remoteUrl),
+      );
     }
 
     throw const ApiServiceException(
       'Lỗi render hệ thống',
       details:
-          'API đã phản hồi nhưng không tìm thấy ảnh output ở các field base64/URL phổ biến.',
+          'Gemini image API đã phản hồi nhưng không tìm thấy ảnh output ở các field base64/URL phổ biến.',
     );
   }
 
   String? _extractBase64Image(Map<String, dynamic> payload) {
     final looseImageEntry = _readPath(payload, ['images', 0]);
     final candidates = <String?>[
+      _readPath(payload, ['output_image', 'data']) as String?,
+      _readPath(payload, ['output', 0, 'data']) as String?,
+      _readPath(payload, ['output', 0, 'image', 'data']) as String?,
       _readPath(payload, ['data', 0, 'b64_json']) as String?,
       _readPath(payload, ['images', 0, 'b64_json']) as String?,
       _readPath(payload, ['artifacts', 0, 'base64']) as String?,
@@ -544,6 +633,7 @@ class ApiService {
   String? _extractImageUrl(Map<String, dynamic> payload) {
     final looseImageEntry = _readPath(payload, ['images', 0]);
     final candidates = <String?>[
+      _readPath(payload, ['output_image', 'url']) as String?,
       _readPath(payload, ['data', 0, 'url']) as String?,
       _readPath(payload, ['images', 0, 'url']) as String?,
       _readPath(payload, ['artifacts', 0, 'url']) as String?,
@@ -559,6 +649,7 @@ class ApiService {
   String? _extractInlineDataUrl(Map<String, dynamic> payload) {
     final looseImageEntry = _readPath(payload, ['images', 0]);
     final candidates = <String?>[
+      _readPath(payload, ['output_image', 'image_url']) as String?,
       _readPath(payload, ['data', 0, 'image_url']) as String?,
       _readPath(payload, ['images', 0, 'image_url']) as String?,
       if (looseImageEntry is String && looseImageEntry.startsWith('data:'))
@@ -640,6 +731,11 @@ class ApiService {
             return message;
           }
         }
+
+        final message = decoded['message'];
+        if (message is String && message.trim().isNotEmpty) {
+          return message;
+        }
       }
     } catch (_) {
       // Fall back to raw body below.
@@ -669,15 +765,39 @@ TUYỆT ĐỐI không in ra quá trình phân tích, không chào hỏi. Chỉ i
 ''';
   }
 
-  String _buildDataUrl({
-    required String base64Image,
-    required String sourceFileName,
+  String _buildGeminiImagePrompt({
+    required String optimizedPrompt,
+    required bool hasStyleReference,
   }) {
-    return 'data:${_mimeTypeFromFileName(sourceFileName)};base64,$base64Image';
+    final parts = <String>[
+      optimizedPrompt.trim(),
+      'Giữ nguyên cấu trúc hình khối, tỷ lệ mặt đứng và bố cục camera của ảnh gốc.',
+      'Render ra đúng 1 ảnh phối cảnh kiến trúc photorealistic chất lượng cao.',
+      if (hasStyleReference)
+        'Dùng ảnh tham chiếu cuối cùng chỉ để học phong cách vật liệu, màu sắc, mood và chi tiết hoàn thiện. Không sao chép hình khối hay bố cục từ ảnh tham chiếu.',
+    ];
+
+    return parts.join('\n');
   }
 
-  String _buildInlineDataUrlFromBytes(Uint8List bytes) {
-    return 'data:image/png;base64,${base64Encode(bytes)}';
+  String _buildInlineDataUrlFromBytes(
+    Uint8List bytes, {
+    required String mimeType,
+  }) {
+    return 'data:$mimeType;base64,${base64Encode(bytes)}';
+  }
+
+  String? _mimeTypeFromDataUrl(String dataUrl) {
+    if (!dataUrl.startsWith('data:')) {
+      return null;
+    }
+
+    final semicolonIndex = dataUrl.indexOf(';');
+    if (semicolonIndex <= 5) {
+      return null;
+    }
+
+    return dataUrl.substring(5, semicolonIndex);
   }
 
   String _mimeTypeFromFileName(String fileName) {
@@ -695,25 +815,6 @@ TUYỆT ĐỐI không in ra quá trình phân tích, không chào hỏi. Chỉ i
     _client.close();
   }
 
-  static AiProvider _providerFromEnvironment() {
-    final raw = const String.fromEnvironment(
-      'ARCHIVISION_AI_PROVIDER',
-      defaultValue: 'openai',
-    ).toLowerCase();
-
-    return raw == 'openai'
-        ? AiProvider.openAiCompatible
-        : AiProvider.controlNetCompatible;
-  }
-
-  static String _defaultApiUrl(AiProvider provider) {
-    return switch (provider) {
-      AiProvider.openAiCompatible => 'https://api.openai.com/v1/images/edits',
-      AiProvider.controlNetCompatible =>
-        'https://api.example.com/v1/controlnet/image-to-image',
-    };
-  }
-
   static String _resolveGeminiApiKey({
     required String primary,
     required String fallback,
@@ -729,14 +830,22 @@ bool _looksLikeMissingGeminiModel(String error) {
   final normalized = error.toLowerCase();
   return normalized.contains('is not found for api version') ||
       normalized.contains('is not supported for generatecontent') ||
+      normalized.contains('model not found') ||
+      normalized.contains('unsupported model') ||
+      normalized.contains('not found') ||
       normalized.contains('404');
 }
 
 class _RenderAsset {
-  const _RenderAsset({required this.bytes, required this.url});
+  const _RenderAsset({
+    required this.bytes,
+    required this.url,
+    required this.mimeType,
+  });
 
   final Uint8List bytes;
   final String url;
+  final String mimeType;
 }
 
 String? _firstNonEmpty(Iterable<String?> values) {

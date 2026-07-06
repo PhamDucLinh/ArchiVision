@@ -10,7 +10,6 @@ void main() {
         credentialsStore: MemoryApiCredentialsStore(
           initialCredentials: const ApiCredentials(
             geminiApiKey: 'gemini-test-key',
-            renderApiKey: 'render-test-key',
           ),
         ),
       ),

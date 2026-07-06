@@ -1,41 +1,29 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-enum ApiCredentialKind { gemini, render }
+enum ApiCredentialKind { gemini }
 
 class ApiCredentials {
-  const ApiCredentials({
-    required this.geminiApiKey,
-    required this.renderApiKey,
-  });
+  const ApiCredentials({required this.geminiApiKey});
 
-  const ApiCredentials.empty() : geminiApiKey = '', renderApiKey = '';
+  const ApiCredentials.empty() : geminiApiKey = '';
 
   final String geminiApiKey;
-  final String renderApiKey;
 
   bool get hasGeminiApiKey => geminiApiKey.trim().isNotEmpty;
-  bool get hasRenderApiKey => renderApiKey.trim().isNotEmpty;
-  bool get isComplete => hasGeminiApiKey && hasRenderApiKey;
+  bool get isComplete => hasGeminiApiKey;
 
-  ApiCredentials copyWith({String? geminiApiKey, String? renderApiKey}) {
-    return ApiCredentials(
-      geminiApiKey: geminiApiKey ?? this.geminiApiKey,
-      renderApiKey: renderApiKey ?? this.renderApiKey,
-    );
+  ApiCredentials copyWith({String? geminiApiKey}) {
+    return ApiCredentials(geminiApiKey: geminiApiKey ?? this.geminiApiKey);
   }
 
   ApiCredentials trimmed() {
-    return ApiCredentials(
-      geminiApiKey: geminiApiKey.trim(),
-      renderApiKey: renderApiKey.trim(),
-    );
+    return ApiCredentials(geminiApiKey: geminiApiKey.trim());
   }
 
   ApiCredentials mergeMissing(ApiCredentials fallback) {
     return ApiCredentials(
       geminiApiKey: hasGeminiApiKey ? geminiApiKey : fallback.geminiApiKey,
-      renderApiKey: hasRenderApiKey ? renderApiKey : fallback.renderApiKey,
     ).trimmed();
   }
 }
@@ -58,7 +46,7 @@ class SecureApiCredentialsStore implements ApiCredentialsStore {
        _preferences = preferences ?? SharedPreferencesAsync();
 
   static const String _geminiKey = 'archivision.gemini_api_key';
-  static const String _renderKey = 'archivision.render_api_key';
+  static const String _legacyRenderKey = 'archivision.render_api_key';
 
   final FlutterSecureStorage _storage;
   final SharedPreferencesAsync _preferences;
@@ -68,24 +56,17 @@ class SecureApiCredentialsStore implements ApiCredentialsStore {
     final secureCredentials = await _readSecureCredentials();
     final fallbackCredentials = await _readPreferenceCredentials();
 
-    final geminiApiKey = secureCredentials.geminiApiKey.isNotEmpty
+    final geminiApiKey = secureCredentials.hasGeminiApiKey
         ? secureCredentials.geminiApiKey
         : fallbackCredentials.geminiApiKey;
-    final renderApiKey = secureCredentials.renderApiKey.isNotEmpty
-        ? secureCredentials.renderApiKey
-        : fallbackCredentials.renderApiKey;
 
-    return ApiCredentials(
-      geminiApiKey: geminiApiKey,
-      renderApiKey: renderApiKey,
-    ).trimmed();
+    return ApiCredentials(geminiApiKey: geminiApiKey).trimmed();
   }
 
   @override
   Future<void> saveCredentials(ApiCredentials credentials) async {
     final normalized = credentials.trimmed();
     await saveKey(ApiCredentialKind.gemini, normalized.geminiApiKey);
-    await saveKey(ApiCredentialKind.render, normalized.renderApiKey);
   }
 
   @override
@@ -98,13 +79,14 @@ class SecureApiCredentialsStore implements ApiCredentialsStore {
 
     final key = switch (kind) {
       ApiCredentialKind.gemini => _geminiKey,
-      ApiCredentialKind.render => _renderKey,
     };
 
     await _preferences.setString(key, normalized);
+    await _preferences.remove(_legacyRenderKey);
 
     try {
       await _storage.write(key: key, value: normalized);
+      await _storage.delete(key: _legacyRenderKey);
     } catch (_) {
       // Fallback persistence via SharedPreferences is already written above.
     }
@@ -114,13 +96,14 @@ class SecureApiCredentialsStore implements ApiCredentialsStore {
   Future<void> clearKey(ApiCredentialKind kind) async {
     final key = switch (kind) {
       ApiCredentialKind.gemini => _geminiKey,
-      ApiCredentialKind.render => _renderKey,
     };
 
     await _preferences.remove(key);
+    await _preferences.remove(_legacyRenderKey);
 
     try {
       await _storage.delete(key: key);
+      await _storage.delete(key: _legacyRenderKey);
     } catch (_) {
       // Ignore secure-store cleanup failures when fallback storage was cleared.
     }
@@ -129,10 +112,13 @@ class SecureApiCredentialsStore implements ApiCredentialsStore {
   Future<ApiCredentials> _readSecureCredentials() async {
     try {
       final geminiApiKey = await _storage.read(key: _geminiKey) ?? '';
-      final renderApiKey = await _storage.read(key: _renderKey) ?? '';
+      final legacyRenderApiKey =
+          await _storage.read(key: _legacyRenderKey) ?? '';
       return ApiCredentials(
-        geminiApiKey: geminiApiKey,
-        renderApiKey: renderApiKey,
+        geminiApiKey: _resolveGeminiKey(
+          primary: geminiApiKey,
+          legacy: legacyRenderApiKey,
+        ),
       ).trimmed();
     } catch (_) {
       return const ApiCredentials.empty();
@@ -141,10 +127,13 @@ class SecureApiCredentialsStore implements ApiCredentialsStore {
 
   Future<ApiCredentials> _readPreferenceCredentials() async {
     final geminiApiKey = await _preferences.getString(_geminiKey) ?? '';
-    final renderApiKey = await _preferences.getString(_renderKey) ?? '';
+    final legacyRenderApiKey =
+        await _preferences.getString(_legacyRenderKey) ?? '';
     return ApiCredentials(
-      geminiApiKey: geminiApiKey,
-      renderApiKey: renderApiKey,
+      geminiApiKey: _resolveGeminiKey(
+        primary: geminiApiKey,
+        legacy: legacyRenderApiKey,
+      ),
     ).trimmed();
   }
 }
@@ -171,9 +160,6 @@ class MemoryApiCredentialsStore implements ApiCredentialsStore {
       ApiCredentialKind.gemini => _credentials.copyWith(
         geminiApiKey: normalized,
       ),
-      ApiCredentialKind.render => _credentials.copyWith(
-        renderApiKey: normalized,
-      ),
     };
   }
 
@@ -181,4 +167,11 @@ class MemoryApiCredentialsStore implements ApiCredentialsStore {
   Future<void> clearKey(ApiCredentialKind kind) async {
     await saveKey(kind, '');
   }
+}
+
+String _resolveGeminiKey({required String primary, required String legacy}) {
+  if (primary.trim().isNotEmpty) {
+    return primary;
+  }
+  return legacy;
 }

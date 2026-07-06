@@ -469,6 +469,7 @@ class ArchitectureStudioController extends ChangeNotifier {
   Uint8List? _styleReferenceImageBytes;
   String? _styleReferenceImageName;
   Uint8List? _resultImageBytes;
+  String _resultImageMimeType = 'image/jpeg';
   String? _resultPrompt;
   String? _statusMessage;
   String? _errorMessage;
@@ -510,7 +511,6 @@ class ArchitectureStudioController extends ChangeNotifier {
   bool get hasSourceImage => _sourceImageBytes != null;
   bool get hasStyleReferenceImage => _styleReferenceImageBytes != null;
   bool get hasGeminiCredential => _credentials.hasGeminiApiKey;
-  bool get hasRenderCredential => _credentials.hasRenderApiKey;
   bool get hasConfiguredCredentials => _credentials.isComplete;
   bool get canOptimizePrompt =>
       hasSourceImage && _viewState != StudioViewState.loading;
@@ -547,7 +547,7 @@ class ArchitectureStudioController extends ChangeNotifier {
       );
       if (!_credentials.isComplete) {
         _statusMessage =
-            'Lần đầu mở app, hãy nhập Gemini API key và Render API key để bắt đầu.';
+            'Lần đầu mở app, hãy nhập Gemini API key để dùng cả tối ưu prompt và render ảnh.';
         requestCredentialSetup();
       }
       _notifyListeners();
@@ -568,23 +568,20 @@ class ArchitectureStudioController extends ChangeNotifier {
       final geminiPersisted =
           !normalized.hasGeminiApiKey ||
           persisted.geminiApiKey == normalized.geminiApiKey;
-      final renderPersisted =
-          !normalized.hasRenderApiKey ||
-          persisted.renderApiKey == normalized.renderApiKey;
 
-      if (geminiPersisted && renderPersisted) {
-        _statusMessage = 'Đã lưu API keys trên thiết bị.';
+      if (geminiPersisted) {
+        _statusMessage = 'Đã lưu Gemini API key trên thiết bị.';
         _errorMessage = null;
       } else {
         _statusMessage =
-            'API keys đã được nạp cho phiên hiện tại nhưng chưa xác minh được việc lưu bền vững trên thiết bị.';
+            'Gemini API key đã được nạp cho phiên hiện tại nhưng chưa xác minh được việc lưu bền vững trên thiết bị.';
         _errorMessage =
             'Ứng dụng sẽ tiếp tục dùng key cho phiên hiện tại. Hãy thử mở lại app để kiểm tra persistence.';
       }
     } catch (error) {
       _statusMessage =
-          'API keys đã được nạp cho phiên hiện tại nhưng không xác minh được việc lưu lâu dài trên thiết bị.';
-      _errorMessage = 'Không thể đọc lại API keys sau khi lưu: $error';
+          'Gemini API key đã được nạp cho phiên hiện tại nhưng không xác minh được việc lưu lâu dài trên thiết bị.';
+      _errorMessage = 'Không thể đọc lại Gemini API key sau khi lưu: $error';
     }
     _notifyListeners();
   }
@@ -840,7 +837,8 @@ class ArchitectureStudioController extends ChangeNotifier {
 
     if (!_credentials.isComplete) {
       requestCredentialSetup(
-        reason: 'App cần 2 API key trước khi bắt đầu render.',
+        reason:
+            'App cần Gemini API key trước khi bắt đầu render bằng Gemini Image API.',
       );
       return;
     }
@@ -859,6 +857,8 @@ class ArchitectureStudioController extends ChangeNotifier {
           ? await _apiService.generateArchitecture(
               sourceImageBytes: sourceImageBytes,
               sourceFileName: _sourceImageName ?? 'reference.png',
+              styleReferenceImageBytes: _styleReferenceImageBytes,
+              styleReferenceFileName: _styleReferenceImageName,
               buildingType: _buildingType,
               style: _style,
               lighting: _lighting,
@@ -872,11 +872,14 @@ class ArchitectureStudioController extends ChangeNotifier {
           : await _apiService.generateArchitectureImage(
               imageBytes: sourceImageBytes,
               sourceFileName: _sourceImageName ?? 'reference.png',
+              styleReferenceImageBytes: _styleReferenceImageBytes,
+              styleReferenceFileName: _styleReferenceImageName,
               optimizedPrompt: cachedPrompt,
-              renderApiKey: _credentials.renderApiKey,
+              geminiApiKey: _credentials.geminiApiKey,
             );
 
       _resultImageBytes = result.imageBytes;
+      _resultImageMimeType = result.imageMimeType;
       _resultPrompt = result.prompt;
       _credentialIssueKind = null;
       _credentialIssueReason = null;
@@ -908,6 +911,8 @@ class ArchitectureStudioController extends ChangeNotifier {
     }
 
     final fileName = _buildResultFileName();
+    final fileExtension = _fileExtensionFromMimeType(_resultImageMimeType);
+    final mimeType = _mimeTypeFromString(_resultImageMimeType);
 
     try {
       String? savedPath;
@@ -917,8 +922,8 @@ class ArchitectureStudioController extends ChangeNotifier {
           savedPath = await FileSaver.instance.saveAs(
             name: fileName,
             bytes: resultImageBytes,
-            fileExtension: 'png',
-            mimeType: MimeType.png,
+            fileExtension: fileExtension,
+            mimeType: mimeType,
           );
         } catch (_) {
           savedPath = null;
@@ -930,8 +935,8 @@ class ArchitectureStudioController extends ChangeNotifier {
           await FileSaver.instance.saveFile(
             name: fileName,
             bytes: resultImageBytes,
-            fileExtension: 'png',
-            mimeType: MimeType.png,
+            fileExtension: fileExtension,
+            mimeType: mimeType,
           );
 
       _statusMessage = effectivePath.isEmpty
@@ -961,6 +966,7 @@ class ArchitectureStudioController extends ChangeNotifier {
     _sourceImageBytes = bytes;
     _sourceImageName = fileName;
     _resultImageBytes = null;
+    _resultImageMimeType = 'image/jpeg';
     _resultPrompt = null;
     _viewState = StudioViewState.idle;
     _statusMessage = statusMessage;
@@ -992,6 +998,22 @@ class ArchitectureStudioController extends ChangeNotifier {
     _apiService.dispose();
     super.dispose();
   }
+}
+
+String _fileExtensionFromMimeType(String mimeType) {
+  return switch (mimeType.toLowerCase()) {
+    'image/png' => 'png',
+    'image/webp' => 'webp',
+    _ => 'jpg',
+  };
+}
+
+MimeType _mimeTypeFromString(String mimeType) {
+  return switch (mimeType.toLowerCase()) {
+    'image/png' => MimeType.png,
+    'image/webp' => MimeType.webp,
+    _ => MimeType.jpeg,
+  };
 }
 
 class _PickedImageData {
@@ -1040,8 +1062,8 @@ class _StudioTopBar extends StatelessWidget {
           const SizedBox(width: 10),
           _TopBarIconButton(
             tooltip: controller.hasConfiguredCredentials
-                ? 'Cập nhật API keys'
-                : 'Thiết lập API keys',
+                ? 'Cập nhật Gemini API key'
+                : 'Thiết lập Gemini API key',
             icon: Icons.settings_outlined,
             highlighted: !controller.hasConfiguredCredentials,
             onPressed: onConfigureKeys,
@@ -2216,16 +2238,10 @@ class _InspectorBadges extends StatelessWidget {
               ? _kSuccessColor
               : Theme.of(context).colorScheme.error,
         ),
-        _InfoBadge(
-          icon: controller.hasRenderCredential
-              ? Icons.bolt_rounded
-              : Icons.bolt_outlined,
-          label: controller.hasRenderCredential
-              ? 'Render Ready'
-              : 'Missing Render Key',
-          color: controller.hasRenderCredential
-              ? _kSuccessColor
-              : Colors.white70,
+        const _InfoBadge(
+          icon: Icons.auto_awesome_rounded,
+          label: 'Gemini Image Ready',
+          color: Colors.white70,
         ),
         const _InfoBadge(
           icon: Icons.content_paste_rounded,
@@ -2574,17 +2590,9 @@ class _InspectorStatusCard extends StatelessWidget {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    switch ((
-                      controller.hasGeminiCredential,
-                      controller.hasRenderCredential,
-                    )) {
-                      (true, false) =>
-                        'Step 1 đã sẵn sàng. Thêm Render API key khi bạn muốn chạy Step 2 để gen ảnh.',
-                      (false, true) =>
-                        'Thiếu Gemini API key nên chưa thể test Step 1 tối ưu prompt.',
-                      _ =>
-                        'Bạn có thể nhập Gemini API key trước để test Step 1, sau đó thêm Render API key cho Step 2.',
-                    },
+                    controller.hasGeminiCredential
+                        ? 'Gemini API key đã sẵn sàng. App sẽ dùng cùng 1 key cho cả tối ưu prompt và render ảnh.'
+                        : 'Nhập Gemini API key để dùng cả Step 1 tối ưu prompt và Step 2 render ảnh bằng Gemini.',
                     style: Theme.of(
                       context,
                     ).textTheme.bodySmall?.copyWith(color: Colors.white),
@@ -2596,23 +2604,15 @@ class _InspectorStatusCard extends StatelessWidget {
             OutlinedButton.icon(
               onPressed: onConfigureKeys,
               icon: const Icon(Icons.settings_outlined),
-              label: const Text('Nhập API Keys'),
+              label: const Text('Nhập Gemini Key'),
             ),
           ],
           if (hasCredentialIssue) ...[
             if (controller.hasConfiguredCredentials) const SizedBox(height: 10),
             OutlinedButton.icon(
               onPressed: controller.openCredentialIssuePrompt,
-              icon: Icon(
-                controller.credentialIssueKind == ApiCredentialKind.gemini
-                    ? Icons.key_rounded
-                    : Icons.bolt_rounded,
-              ),
-              label: Text(
-                controller.credentialIssueKind == ApiCredentialKind.gemini
-                    ? 'Nhập lại Gemini key'
-                    : 'Nhập lại Render key',
-              ),
+              icon: const Icon(Icons.key_rounded),
+              label: const Text('Nhập lại Gemini key'),
             ),
           ],
           if (loadingMessage != null) ...[
@@ -2738,9 +2738,7 @@ class _ApiCredentialsDialog extends StatefulWidget {
 
 class _ApiCredentialsDialogState extends State<_ApiCredentialsDialog> {
   late final TextEditingController _geminiController;
-  late final TextEditingController _renderController;
   bool _obscureGemini = true;
-  bool _obscureRender = true;
 
   @override
   void initState() {
@@ -2748,15 +2746,11 @@ class _ApiCredentialsDialogState extends State<_ApiCredentialsDialog> {
     _geminiController = TextEditingController(
       text: widget.initialCredentials.geminiApiKey,
     );
-    _renderController = TextEditingController(
-      text: widget.initialCredentials.renderApiKey,
-    );
   }
 
   @override
   void dispose() {
     _geminiController.dispose();
-    _renderController.dispose();
     super.dispose();
   }
 
@@ -2765,12 +2759,11 @@ class _ApiCredentialsDialogState extends State<_ApiCredentialsDialog> {
     final focusKind = widget.request.focusKind;
     final headline = switch (focusKind) {
       ApiCredentialKind.gemini => 'Cập nhật Gemini API key',
-      ApiCredentialKind.render => 'Cập nhật Render API key',
-      null => 'Thiết lập API keys',
+      null => 'Thiết lập Gemini API key',
     };
     final reason =
         widget.request.reason ??
-        'App sẽ lưu 2 key này trên thiết bị để những lần mở sau không cần nhập lại.';
+        'App sẽ lưu Gemini API key trên thiết bị và dùng chung cho cả bước tối ưu prompt lẫn render ảnh.';
 
     return AlertDialog(
       backgroundColor: _kPanelColorDeep,
@@ -2812,28 +2805,6 @@ class _ApiCredentialsDialogState extends State<_ApiCredentialsDialog> {
                   ),
                 ),
               ),
-              const SizedBox(height: 14),
-              TextField(
-                controller: _renderController,
-                autofocus: focusKind == ApiCredentialKind.render,
-                obscureText: _obscureRender,
-                decoration: InputDecoration(
-                  labelText: 'Render API key',
-                  hintText: 'Nhập key dùng cho bước render ảnh',
-                  suffixIcon: IconButton(
-                    onPressed: () {
-                      setState(() {
-                        _obscureRender = !_obscureRender;
-                      });
-                    },
-                    icon: Icon(
-                      _obscureRender
-                          ? Icons.visibility_rounded
-                          : Icons.visibility_off_rounded,
-                    ),
-                  ),
-                ),
-              ),
             ],
           ),
         ),
@@ -2847,13 +2818,12 @@ class _ApiCredentialsDialogState extends State<_ApiCredentialsDialog> {
           onPressed: () {
             final credentials = ApiCredentials(
               geminiApiKey: _geminiController.text,
-              renderApiKey: _renderController.text,
             ).trimmed();
 
-            if (!credentials.hasGeminiApiKey && !credentials.hasRenderApiKey) {
+            if (!credentials.hasGeminiApiKey) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
-                  content: Text('Hãy nhập ít nhất 1 API key để lưu.'),
+                  content: Text('Hãy nhập Gemini API key để lưu.'),
                 ),
               );
               return;
@@ -2861,7 +2831,7 @@ class _ApiCredentialsDialogState extends State<_ApiCredentialsDialog> {
 
             Navigator.of(context).pop(credentials);
           },
-          child: const Text('Lưu API Keys'),
+          child: const Text('Lưu Gemini Key'),
         ),
       ],
     );
