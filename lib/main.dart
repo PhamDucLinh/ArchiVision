@@ -458,7 +458,9 @@ class ArchitectureStudioController extends ChangeNotifier {
     required ApiService apiService,
     required ApiCredentialsStore credentialsStore,
   }) : _apiService = apiService,
-       _credentialsStore = credentialsStore;
+       _credentialsStore = credentialsStore,
+       _selectedGeminiTextModel = apiService.defaultGeminiTextModel,
+       _selectedGeminiImageModel = apiService.defaultGeminiImageModel;
 
   final ApiService _apiService;
   final ApiCredentialsStore _credentialsStore;
@@ -484,6 +486,8 @@ class ArchitectureStudioController extends ChangeNotifier {
   LightingCondition _lighting = LightingCondition.sunset;
   ContextPreset _contextPreset = ContextPreset.urbanStreet;
   CameraAnglePreset _cameraAnglePreset = CameraAnglePreset.wide;
+  String _selectedGeminiTextModel;
+  String _selectedGeminiImageModel;
   bool _isDisposed = false;
 
   StudioViewState get viewState => _viewState;
@@ -507,6 +511,12 @@ class ArchitectureStudioController extends ChangeNotifier {
   LightingCondition get lighting => _lighting;
   ContextPreset get contextPreset => _contextPreset;
   CameraAnglePreset get cameraAnglePreset => _cameraAnglePreset;
+  String get selectedGeminiTextModel => _selectedGeminiTextModel;
+  String get selectedGeminiImageModel => _selectedGeminiImageModel;
+  List<String> get availableGeminiTextModels =>
+      _apiService.availableGeminiTextModels;
+  List<String> get availableGeminiImageModels =>
+      _apiService.availableGeminiImageModels;
 
   bool get hasSourceImage => _sourceImageBytes != null;
   bool get hasStyleReferenceImage => _styleReferenceImageBytes != null;
@@ -740,6 +750,23 @@ class ArchitectureStudioController extends ChangeNotifier {
     _notifyListeners();
   }
 
+  void selectGeminiTextModel(String value) {
+    if (_selectedGeminiTextModel == value) {
+      return;
+    }
+    _selectedGeminiTextModel = value;
+    _invalidateOptimizedPrompt();
+    _notifyListeners();
+  }
+
+  void selectGeminiImageModel(String value) {
+    if (_selectedGeminiImageModel == value) {
+      return;
+    }
+    _selectedGeminiImageModel = value;
+    _notifyListeners();
+  }
+
   void updateCustomPrompt(String value) {
     _customPrompt = value;
     _invalidateOptimizedPrompt();
@@ -778,6 +805,7 @@ class ArchitectureStudioController extends ChangeNotifier {
         lighting: _lighting,
         context: renderContextBrief,
         geminiApiKey: _credentials.geminiApiKey,
+        geminiTextModel: _selectedGeminiTextModel,
       );
 
       _resultPrompt = optimizedPrompt;
@@ -864,6 +892,8 @@ class ArchitectureStudioController extends ChangeNotifier {
               lighting: _lighting,
               context: renderContextBrief,
               credentials: _credentials,
+              geminiTextModel: _selectedGeminiTextModel,
+              geminiImageModel: _selectedGeminiImageModel,
               onStatusChanged: (message) {
                 _loadingMessage = message;
                 _notifyListeners();
@@ -876,6 +906,7 @@ class ArchitectureStudioController extends ChangeNotifier {
               styleReferenceFileName: _styleReferenceImageName,
               optimizedPrompt: cachedPrompt,
               geminiApiKey: _credentials.geminiApiKey,
+              geminiImageModel: _selectedGeminiImageModel,
             );
 
       _resultImageBytes = result.imageBytes;
@@ -1005,6 +1036,24 @@ String _fileExtensionFromMimeType(String mimeType) {
     'image/png' => 'png',
     'image/webp' => 'webp',
     _ => 'jpg',
+  };
+}
+
+String _geminiTextModelLabel(String model) {
+  return switch (model) {
+    'gemini-3.5-flash' => 'Gemini 3.5 Flash',
+    'gemini-2.5-flash' => 'Gemini 2.5 Flash',
+    'gemini-flash-latest' => 'Gemini Flash Latest',
+    _ => model,
+  };
+}
+
+String _geminiImageModelLabel(String model) {
+  return switch (model) {
+    'gemini-3-pro-image' => 'Nano Banana Pro',
+    'gemini-3.1-flash-image' => 'Gemini 3.1 Flash Image',
+    'gemini-2.5-flash-image' => 'Nano Banana',
+    _ => model,
   };
 }
 
@@ -2128,6 +2177,33 @@ class _StudioInspector extends StatelessWidget {
           items: CameraAnglePreset.values,
           itemLabelBuilder: (item) => item.labelVi,
           onChanged: isLoading ? null : controller.selectCameraAnglePreset,
+        ),
+        const SizedBox(height: 26),
+        const _SectionLabel('MODEL AI'),
+        const SizedBox(height: 14),
+        GridView.count(
+          crossAxisCount: 2,
+          mainAxisSpacing: 12,
+          crossAxisSpacing: 12,
+          childAspectRatio: 1.38,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          children: [
+            _DropdownField<String>(
+              label: 'STEP 1 MODEL',
+              value: controller.selectedGeminiTextModel,
+              items: controller.availableGeminiTextModels,
+              itemLabelBuilder: _geminiTextModelLabel,
+              onChanged: isLoading ? null : controller.selectGeminiTextModel,
+            ),
+            _DropdownField<String>(
+              label: 'STEP 2 MODEL',
+              value: controller.selectedGeminiImageModel,
+              items: controller.availableGeminiImageModels,
+              itemLabelBuilder: _geminiImageModelLabel,
+              onChanged: isLoading ? null : controller.selectGeminiImageModel,
+            ),
+          ],
         ),
         const SizedBox(height: 18),
         _InspectorStatusCard(

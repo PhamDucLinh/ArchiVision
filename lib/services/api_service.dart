@@ -196,9 +196,23 @@ class ApiService {
     'gemini-3.1-flash-image',
     'gemini-2.5-flash-image',
   ];
+  static const int _transientRetryAttempts = 3;
 
   ApiCredentials get fallbackCredentials =>
       ApiCredentials(geminiApiKey: _geminiApiKey).trimmed();
+
+  String get defaultGeminiTextModel => _geminiTextModel;
+  String get defaultGeminiImageModel => _geminiImageModel;
+
+  List<String> get availableGeminiTextModels => _buildCandidateModels(
+    primary: _geminiTextModel,
+    fallbacks: _geminiTextFallbackModels,
+  );
+
+  List<String> get availableGeminiImageModels => _buildCandidateModels(
+    primary: _geminiImageModel,
+    fallbacks: _geminiImageFallbackModels,
+  );
 
   Future<String> optimizeArchitecturePrompt({
     required Uint8List sourceImageBytes,
@@ -208,6 +222,7 @@ class ApiService {
     required LightingCondition lighting,
     required String context,
     required String geminiApiKey,
+    String? geminiTextModel,
   }) async {
     return analyzeAndBuildPrompt(
       imageBytes: sourceImageBytes,
@@ -217,6 +232,7 @@ class ApiService {
       context: context,
       lighting: lighting.labelVi,
       geminiApiKey: geminiApiKey,
+      geminiTextModel: geminiTextModel,
     );
   }
 
@@ -230,6 +246,8 @@ class ApiService {
     required LightingCondition lighting,
     required String context,
     required ApiCredentials credentials,
+    String? geminiTextModel,
+    String? geminiImageModel,
     ArchitectureChainStatusCallback? onStatusChanged,
   }) async {
     try {
@@ -242,6 +260,7 @@ class ApiService {
         lighting: lighting,
         context: context,
         geminiApiKey: credentials.geminiApiKey,
+        geminiTextModel: geminiTextModel,
       );
 
       onStatusChanged?.call(renderingMessage);
@@ -252,6 +271,7 @@ class ApiService {
         styleReferenceFileName: styleReferenceFileName,
         optimizedPrompt: optimizedPrompt,
         geminiApiKey: credentials.geminiApiKey,
+        geminiImageModel: geminiImageModel,
       );
     } on ApiServiceException {
       rethrow;
@@ -271,6 +291,7 @@ class ApiService {
     required String context,
     required String lighting,
     required String geminiApiKey,
+    String? geminiTextModel,
   }) async {
     final normalizedGeminiApiKey = geminiApiKey.trim();
     if (normalizedGeminiApiKey.isEmpty) {
@@ -295,6 +316,7 @@ class ApiService {
         imageMimeType: imageMimeType,
         normalizedGeminiApiKey: normalizedGeminiApiKey,
         systemPrompt: systemPrompt,
+        preferredModel: geminiTextModel,
       );
     } on InvalidApiKey catch (error) {
       throw ApiServiceException(
@@ -308,11 +330,23 @@ class ApiService {
         details: error.toString(),
       );
     } on ServerException catch (error) {
+      if (_looksLikeTransientGeminiError(error.toString())) {
+        throw _buildTemporaryUnavailableException(
+          userMessage: 'Không thể phân tích ảnh',
+          rawError: error.toString(),
+        );
+      }
       throw ApiServiceException(
         'Không thể phân tích ảnh',
         details: error.toString(),
       );
     } on GenerativeAIException catch (error) {
+      if (_looksLikeTransientGeminiError(error.toString())) {
+        throw _buildTemporaryUnavailableException(
+          userMessage: 'Không thể phân tích ảnh',
+          rawError: error.toString(),
+        );
+      }
       throw ApiServiceException(
         'Không thể phân tích ảnh',
         details: error.toString(),
@@ -333,11 +367,12 @@ class ApiService {
     required String imageMimeType,
     required String normalizedGeminiApiKey,
     required String systemPrompt,
+    String? preferredModel,
   }) async {
-    final candidateModels = <String>[
-      _geminiTextModel,
-      ..._geminiTextFallbackModels.where((model) => model != _geminiTextModel),
-    ];
+    final candidateModels = _buildCandidateModels(
+      primary: preferredModel ?? _geminiTextModel,
+      fallbacks: _geminiTextFallbackModels,
+    );
 
     ApiServiceException? lastModelError;
 
@@ -348,42 +383,72 @@ class ApiService {
         systemInstruction: Content.system(systemPrompt),
       );
 
-      try {
-        final response = await model.generateContent([
-          Content.multi([
-            DataPart(imageMimeType, imageBytes),
-            TextPart(
-              'Hãy trả về đúng 1 đoạn prompt tiếng Việt hoàn chỉnh để dùng cho AI Render.',
-            ),
-          ]),
-        ]);
+      for (var attempt = 1; attempt <= _transientRetryAttempts; attempt++) {
+        try {
+          final response = await model.generateContent([
+            Content.multi([
+              DataPart(imageMimeType, imageBytes),
+              TextPart(
+                'Hãy trả về đúng 1 đoạn prompt tiếng Việt hoàn chỉnh để dùng cho AI Render.',
+              ),
+            ]),
+          ]);
 
-        final optimizedPrompt = response.text?.trim();
-        if (optimizedPrompt == null || optimizedPrompt.isEmpty) {
-          throw const ApiServiceException(
-            'Không thể phân tích ảnh',
-            details: 'Gemini trả về nội dung rỗng.',
-          );
-        }
+          final optimizedPrompt = response.text?.trim();
+          if (optimizedPrompt == null || optimizedPrompt.isEmpty) {
+            throw const ApiServiceException(
+              'Không thể phân tích ảnh',
+              details: 'Gemini trả về nội dung rỗng.',
+            );
+          }
 
-        return optimizedPrompt;
-      } on InvalidApiKey {
-        rethrow;
-      } on UnsupportedUserLocation {
-        rethrow;
-      } on GenerativeAIException catch (error) {
-        if (_looksLikeMissingGeminiModel(error.toString())) {
-          lastModelError = ApiServiceException(
-            'Không thể phân tích ảnh',
-            details:
-                'Gemini model `$modelName` không còn hỗ trợ generateContent. '
-                'Đã thử chuyển sang model khác.',
-          );
-          continue;
+          return optimizedPrompt;
+        } on InvalidApiKey {
+          rethrow;
+        } on UnsupportedUserLocation {
+          rethrow;
+        } on ServerException catch (error) {
+          if (_looksLikeTransientGeminiError(error.toString())) {
+            if (attempt < _transientRetryAttempts) {
+              await _waitBeforeRetry(attempt);
+              continue;
+            }
+
+            lastModelError = _buildTemporaryUnavailableException(
+              userMessage: 'Không thể phân tích ảnh',
+              rawError: error.toString(),
+            );
+            break;
+          }
+          rethrow;
+        } on GenerativeAIException catch (error) {
+          if (_looksLikeMissingGeminiModel(error.toString())) {
+            lastModelError = ApiServiceException(
+              'Không thể phân tích ảnh',
+              details:
+                  'Gemini model `$modelName` không còn hỗ trợ generateContent. '
+                  'Đã thử chuyển sang model khác.',
+            );
+            break;
+          }
+
+          if (_looksLikeTransientGeminiError(error.toString())) {
+            if (attempt < _transientRetryAttempts) {
+              await _waitBeforeRetry(attempt);
+              continue;
+            }
+
+            lastModelError = _buildTemporaryUnavailableException(
+              userMessage: 'Không thể phân tích ảnh',
+              rawError: error.toString(),
+            );
+            break;
+          }
+
+          rethrow;
+        } on ApiServiceException {
+          rethrow;
         }
-        rethrow;
-      } on ApiServiceException {
-        rethrow;
       }
     }
 
@@ -401,6 +466,7 @@ class ApiService {
     String? styleReferenceFileName,
     required String optimizedPrompt,
     required String geminiApiKey,
+    String? geminiImageModel,
   }) async {
     final normalizedGeminiApiKey = geminiApiKey.trim();
     if (normalizedGeminiApiKey.isEmpty) {
@@ -420,12 +486,10 @@ class ApiService {
       );
     }
 
-    final candidateModels = <String>[
-      _geminiImageModel,
-      ..._geminiImageFallbackModels.where(
-        (model) => model != _geminiImageModel,
-      ),
-    ];
+    final candidateModels = _buildCandidateModels(
+      primary: geminiImageModel ?? _geminiImageModel,
+      fallbacks: _geminiImageFallbackModels,
+    );
 
     ApiServiceException? lastModelError;
 
@@ -440,60 +504,79 @@ class ApiService {
       );
 
       try {
-        final response = await _client.post(
-          Uri.parse(_interactionsApiUrl),
-          headers: <String, String>{
-            'x-goog-api-key': normalizedGeminiApiKey,
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-          },
-          body: jsonEncode(payload),
-        );
+        for (var attempt = 1; attempt <= _transientRetryAttempts; attempt++) {
+          final response = await _client.post(
+            Uri.parse(_interactionsApiUrl),
+            headers: <String, String>{
+              'x-goog-api-key': normalizedGeminiApiKey,
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+            },
+            body: jsonEncode(payload),
+          );
 
-        if (response.statusCode == 401 || response.statusCode == 403) {
-          throw ApiServiceException(
-            'Lỗi render hệ thống',
-            details:
-                'Gemini image API từ chối request (${response.statusCode}): ${_extractErrorMessage(response.body)}',
-            credentialKind: ApiCredentialKind.gemini,
+          if (response.statusCode == 401 || response.statusCode == 403) {
+            throw ApiServiceException(
+              'Lỗi render hệ thống',
+              details:
+                  'Gemini image API từ chối request (${response.statusCode}): ${_extractErrorMessage(response.body)}',
+              credentialKind: ApiCredentialKind.gemini,
+            );
+          }
+
+          if (response.statusCode == 404 &&
+              _looksLikeMissingGeminiModel(response.body)) {
+            lastModelError = ApiServiceException(
+              'Lỗi render hệ thống',
+              details:
+                  'Gemini image model `$modelName` chưa khả dụng. Đã thử chuyển sang model fallback.',
+            );
+            break;
+          }
+
+          if (_looksLikeTransientHttpError(
+            response.statusCode,
+            response.body,
+          )) {
+            if (attempt < _transientRetryAttempts) {
+              await _waitBeforeRetry(attempt);
+              continue;
+            }
+
+            lastModelError = _buildTemporaryUnavailableException(
+              userMessage: 'Lỗi render hệ thống',
+              rawError:
+                  'Gemini image API failed (${response.statusCode}): ${_extractErrorMessage(response.body)}',
+            );
+            break;
+          }
+
+          if (response.statusCode < 200 || response.statusCode >= 300) {
+            throw ApiServiceException(
+              'Lỗi render hệ thống',
+              details:
+                  'Gemini image API failed (${response.statusCode}): ${_extractErrorMessage(response.body)}',
+            );
+          }
+
+          final decoded = jsonDecode(response.body);
+          if (decoded is! Map<String, dynamic>) {
+            throw const ApiServiceException(
+              'Lỗi render hệ thống',
+              details:
+                  'Gemini image API trả về dữ liệu không đúng định dạng JSON object.',
+            );
+          }
+
+          final renderAsset = await _extractRenderAsset(decoded);
+          return ArchitectureGenerationResult(
+            imageBytes: renderAsset.bytes,
+            imageUrl: renderAsset.url,
+            imageMimeType: renderAsset.mimeType,
+            prompt: optimizedPrompt,
+            rawResponse: decoded,
           );
         }
-
-        if (response.statusCode == 404 &&
-            _looksLikeMissingGeminiModel(response.body)) {
-          lastModelError = ApiServiceException(
-            'Lỗi render hệ thống',
-            details:
-                'Gemini image model `$modelName` chưa khả dụng. Đã thử chuyển sang model fallback.',
-          );
-          continue;
-        }
-
-        if (response.statusCode < 200 || response.statusCode >= 300) {
-          throw ApiServiceException(
-            'Lỗi render hệ thống',
-            details:
-                'Gemini image API failed (${response.statusCode}): ${_extractErrorMessage(response.body)}',
-          );
-        }
-
-        final decoded = jsonDecode(response.body);
-        if (decoded is! Map<String, dynamic>) {
-          throw const ApiServiceException(
-            'Lỗi render hệ thống',
-            details:
-                'Gemini image API trả về dữ liệu không đúng định dạng JSON object.',
-          );
-        }
-
-        final renderAsset = await _extractRenderAsset(decoded);
-        return ArchitectureGenerationResult(
-          imageBytes: renderAsset.bytes,
-          imageUrl: renderAsset.url,
-          imageMimeType: renderAsset.mimeType,
-          prompt: optimizedPrompt,
-          rawResponse: decoded,
-        );
       } on ApiServiceException catch (error) {
         final canRetryWithFallback =
             _looksLikeMissingGeminiModel(error.details ?? '') &&
@@ -815,6 +898,35 @@ TUYỆT ĐỐI không in ra quá trình phân tích, không chào hỏi. Chỉ i
     _client.close();
   }
 
+  ApiServiceException _buildTemporaryUnavailableException({
+    required String userMessage,
+    required String rawError,
+  }) {
+    return ApiServiceException(
+      userMessage,
+      details:
+          'Gemini đang quá tải tạm thời. Ứng dụng đã tự thử lại vài lần nhưng chưa thành công. Vui lòng thử lại sau ít phút.\n$rawError',
+    );
+  }
+
+  Future<void> _waitBeforeRetry(int attempt) {
+    final seconds = attempt * 2;
+    return Future<void>.delayed(Duration(seconds: seconds));
+  }
+
+  List<String> _buildCandidateModels({
+    required String primary,
+    required List<String> fallbacks,
+  }) {
+    final normalizedPrimary = primary.trim();
+    final candidates = <String>[
+      if (normalizedPrimary.isNotEmpty) normalizedPrimary,
+      ...fallbacks,
+    ];
+
+    return candidates.toSet().toList(growable: false);
+  }
+
   static String _resolveGeminiApiKey({
     required String primary,
     required String fallback,
@@ -834,6 +946,26 @@ bool _looksLikeMissingGeminiModel(String error) {
       normalized.contains('unsupported model') ||
       normalized.contains('not found') ||
       normalized.contains('404');
+}
+
+bool _looksLikeTransientGeminiError(String error) {
+  final normalized = error.toLowerCase();
+  return normalized.contains('503') ||
+      normalized.contains('unavailable') ||
+      normalized.contains('currently experiencing high demand') ||
+      normalized.contains('try again later');
+}
+
+bool _looksLikeTransientHttpError(int statusCode, String body) {
+  if (statusCode == 429 ||
+      statusCode == 500 ||
+      statusCode == 502 ||
+      statusCode == 503 ||
+      statusCode == 504) {
+    return true;
+  }
+
+  return _looksLikeTransientGeminiError(body);
 }
 
 class _RenderAsset {
